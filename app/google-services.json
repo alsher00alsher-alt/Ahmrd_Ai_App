@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "49417816855",
+    "firebase_url": "https://pubg-skin-362e2-default-rtdb.firebaseio.com",
+    "project_id": "pubg-skin-362e2",
+    "storage_bucket": "pubg-skin-362e2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:49417816855:android:bb152cc9d4aa251cfc8552",
+        "android_client_info": {
+          "package_name": "com.academyapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "49417816855-8p8vfrqngu4v9pnl39nj6p1vq15udd2l.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAtiHPmqWr06rBy-5WU4aXUWJlE_fex7nI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "49417816855-8p8vfrqngu4v9pnl39nj6p1vq15udd2l.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

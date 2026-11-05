@@ -1,0 +1,500 @@
+package com.academyapp;
+
+import android.Manifest;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.content.ContentValues;
+import android.net.Uri;
+import android.os.Environment;
+import android.provider.MediaStore;
+import androidx.core.app.NotificationCompat;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import android.annotation.SuppressLint;
+import android.content.pm.PackageManager;
+import android.content.SharedPreferences;
+import android.webkit.JavascriptInterface;
+import android.graphics.Color;
+import android.os.Build;
+import android.os.Bundle;
+import android.view.View;
+import android.view.WindowManager;
+import android.view.DisplayCutout;
+import android.webkit.GeolocationPermissions;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.ValueCallback;
+import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
+import android.webkit.WebViewClient;
+import android.widget.ProgressBar;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
+import com.google.firebase.messaging.FirebaseMessaging;
+
+public class MainActivity extends AppCompatActivity {
+
+    // ===== JS Bridge لحفظ بيانات المستخدم =====
+    public class WebAppInterface {
+        @JavascriptInterface
+        public void saveUser(String uid, String name, String phone, String photoURL) {
+            SharedPreferences prefs = getSharedPreferences("app_user", MODE_PRIVATE);
+            prefs.edit()
+                .putString("uid", uid)
+                .putString("name", name)
+                .putString("phone", phone)
+                .putString("photoURL", photoURL)
+                .apply();
+            System.out.println("User saved: " + name);
+        }
+        
+        @JavascriptInterface
+        public void clearUser() {
+            SharedPreferences prefs = getSharedPreferences("app_user", MODE_PRIVATE);
+            prefs.edit().clear().apply();
+        }
+        
+        @JavascriptInterface
+        public String getUserUid() {
+            return getSharedPreferences("app_user", MODE_PRIVATE).getString("uid", "");
+        }
+        
+        @JavascriptInterface
+        public boolean hasStoragePermission() {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                return ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+                    && ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED;
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                return ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+            }
+            return true;
+        }
+
+        @JavascriptInterface
+        public void requestStoragePermission() {
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    ActivityCompat.requestPermissions(MainActivity.this, new String[]{
+                        Manifest.permission.READ_MEDIA_IMAGES,
+                        Manifest.permission.READ_MEDIA_VIDEO,
+                        Manifest.permission.READ_MEDIA_AUDIO
+                    }, 200);
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    ActivityCompat.requestPermissions(MainActivity.this, new String[]{
+                        Manifest.permission.READ_EXTERNAL_STORAGE,
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE
+                    }, 200);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public boolean hasCameraPermission() {
+            return ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+        }
+
+        @JavascriptInterface
+        public void requestCameraPermission() {
+            runOnUiThread(() -> {
+                ActivityCompat.requestPermissions(MainActivity.this, new String[]{
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.RECORD_AUDIO
+                }, 300);
+            });
+        }
+
+        @JavascriptInterface
+        public boolean hasNotificationPermission() {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                return ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+            }
+            return true;
+        }
+
+        @JavascriptInterface
+        public void requestNotificationPermission() {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                runOnUiThread(() -> {
+                    ActivityCompat.requestPermissions(MainActivity.this, new String[]{
+                        Manifest.permission.POST_NOTIFICATIONS
+                    }, 400);
+                });
+            }
+        }
+
+        @JavascriptInterface
+        public void retry() {
+            runOnUiThread(() -> {
+                if (webView != null) webView.loadUrl(WEB_URL);
+            });
+        }
+
+        @JavascriptInterface
+        public void downloadFile(String url, String filename) {
+            if (url == null || filename == null) return;
+            // نتأكد من صلاحيات التخزين أولاً
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !hasStoragePermission()) {
+                requestStoragePermission();
+                // نبلغ الـ JS إننا طلبنا الصلاحيات
+                runOnUiThread(() -> {
+                    if (webView != null) {
+                        webView.evaluateJavascript("window.__onPermissionNeeded && window.__onPermissionNeeded('storage')", null);
+                    }
+                });
+                return;
+            }
+            final String safeName = filename.replaceAll("[^a-zA-Z0-9._-]", "_");
+            new Thread(() -> {
+                try {
+                    URL u = new URL(url);
+                    HttpURLConnection conn = (HttpURLConnection) u.openConnection();
+                    conn.setRequestMethod("GET");
+                    conn.setConnectTimeout(30000);
+                    conn.setReadTimeout(120000);
+                    conn.connect();
+                    int fileLength = conn.getContentLength();
+                    InputStream is = conn.getInputStream();
+                    
+                    FileOutputStream fos;
+                    File targetFile = null;
+                    Uri uri = null;
+                    
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        ContentValues values = new ContentValues();
+                        values.put(MediaStore.MediaColumns.DISPLAY_NAME, safeName);
+                        values.put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream");
+                        values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                        uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                        if (uri != null) {
+                            fos = (FileOutputStream) getContentResolver().openOutputStream(uri);
+                        } else {
+                            File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                            if (!dir.exists()) dir.mkdirs();
+                            targetFile = new File(dir, safeName);
+                            fos = new FileOutputStream(targetFile);
+                        }
+                    } else {
+                        File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                        if (!dir.exists()) dir.mkdirs();
+                        targetFile = new File(dir, safeName);
+                        fos = new FileOutputStream(targetFile);
+                    }
+                    
+                    byte[] buffer = new byte[16384];
+                    long total = 0;
+                    int count;
+                    long lastUpdate = 0;
+                    
+                    while ((count = is.read(buffer)) != -1) {
+                        total += count;
+                        fos.write(buffer, 0, count);
+                        long now = System.currentTimeMillis();
+                        if (now - lastUpdate > 200) {
+                            lastUpdate = now;
+                            final int progress = fileLength > 0 ? (int) (total * 100 / fileLength) : 0;
+                            final long totalBytes = fileLength;
+                            final long downloaded = total;
+                            runOnUiThread(() -> {
+                                if (webView != null) {
+                                    String script = "window.__onNativeDownloadProgress && window.__onNativeDownloadProgress(" + progress + "," + downloaded + "," + totalBytes + ")";
+                                    webView.evaluateJavascript(script, null);
+                                }
+                            });
+                        }
+                    }
+                    
+                    fos.flush();
+                    fos.close();
+                    is.close();
+                    conn.disconnect();
+                    
+                    runOnUiThread(() -> {
+                        if (webView != null) {
+                            String script = "window.__onNativeDownloadComplete && window.__onNativeDownloadComplete('" + safeName + "')";
+                            webView.evaluateJavascript(script, null);
+                        }
+                        showDownloadDoneNotification(safeName);
+                    });
+                    
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    final String err = e.getMessage() == null ? "خطأ في التحميل" : e.getMessage();
+                    runOnUiThread(() -> {
+                        if (webView != null) {
+                            String script = "window.__onNativeDownloadError && window.__onNativeDownloadError('" + err.replace("'", "\\'") + "')";
+                            webView.evaluateJavascript(script, null);
+                        }
+                    });
+                }
+            }).start();
+        }
+    }
+    
+    private void showDownloadDoneNotification(String filename) {
+        try {
+            String channelId = "downloads_channel";
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationChannel ch = new NotificationChannel(channelId, "التحميلات", NotificationManager.IMPORTANCE_LOW);
+                nm.createNotificationChannel(ch);
+            }
+            NotificationCompat.Builder b = new NotificationCompat.Builder(this, channelId)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("تم التحميل بنجاح ✅")
+                .setContentText(filename + " محفوظ في Downloads")
+                .setAutoCancel(true);
+            nm.notify((int) System.currentTimeMillis(), b.build());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    private WebView webView;
+    private ValueCallback<Uri[]> mFilePathCallback;
+    private static final int FILE_CHOOSER_RESULT_CODE = 500;
+
+    private String getErrorPageHtml() {
+        return "<!DOCTYPE html><html dir='rtl'><head><meta name='viewport' content='width=device-width, initial-scale=1'><style>body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; text-align: center; padding: 50px 20px; background: #F9FAFB; color: #111827; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; } h1 { font-size: 24px; margin-bottom: 10px; font-weight: 800; } p { color: #6B7280; font-size: 15px; margin-bottom: 30px; } .icon { font-size: 80px; margin-bottom: 20px; } button { padding: 14px 28px; font-size: 16px; background: linear-gradient(135deg, #6366F1, #8B5CF6); color: white; border: none; border-radius: 14px; font-weight: bold; cursor: pointer; box-shadow: 0 10px 25px rgba(99, 102, 241, 0.3); }</style></head><body><div class='icon'>📡</div><h1>لا يوجد اتصال بالإنترنت</h1><p>تأكد من اتصالك بالشبكة وحاول مرة أخرى</p><button onclick='window.AndroidApp.retry()'>إعادة المحاولة</button></body></html>";
+    }
+
+    private ProgressBar progressBar;
+    private static final String WEB_URL = "https://moon-dash-theta.vercel.app/student?v=" + System.currentTimeMillis();
+    private static final int PERMISSION_REQUEST_CODE = 100;
+
+    @SuppressLint("SetJavaScriptEnabled")
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        // Full screen mode - كامل بدون أي شرائط
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        
+        // نستخدم WindowInsetsController لإخفاء كل الحواf
+        WindowInsetsControllerCompat controller = new WindowInsetsControllerCompat(
+            getWindow(), 
+            getWindow().getDecorView()
+        );
+        controller.hide(WindowInsetsCompat.Type.systemBars());
+        controller.hide(WindowInsetsCompat.Type.displayCutout());
+        controller.setSystemBarsBehavior(
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        );
+        
+        // إعدادات إضافية للشاشة الكاملة
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            getWindow().getAttributes().layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getWindow().setDecorFitsSystemWindows(false);
+        }
+        
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        getWindow().setStatusBarColor(Color.TRANSPARENT);
+        getWindow().setNavigationBarColor(Color.TRANSPARENT);
+
+        setContentView(R.layout.activity_main);
+
+        webView = findViewById(R.id.webView);
+        progressBar = findViewById(R.id.progressBar);
+
+        setupWebView();
+        requestPermissions();
+        getFCMToken();
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private void setupWebView() {
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+        settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
+        settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
+
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                view.loadUrl(url);
+                return true;
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                progressBar.setVisibility(View.GONE);
+                
+                // نحط التوكن بعد ما الصفحة تخلص تحميل
+                injectTokenToWebView();
+                
+                // نعيد المحاولة بعد ثانيتين (لو الصفحة عملت reload)
+                view.postDelayed(() -> injectTokenToWebView(), 2000);
+                view.postDelayed(() -> injectTokenToWebView(), 5000);
+            }
+        });
+
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onProgressChanged(WebView view, int newProgress) {
+                super.onProgressChanged(view, newProgress);
+                if (newProgress < 100) {
+                    progressBar.setVisibility(View.VISIBLE);
+                } else {
+                    progressBar.setVisibility(View.GONE);
+                }
+            }
+
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(() -> request.grant(request.getResources()));
+            }
+
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                callback.invoke(origin, true, false);
+            }
+        });
+
+        webView.addJavascriptInterface(new WebAppInterface(), "AndroidApp");
+        // نظف الكاش قبل التحميل
+        webView.clearCache(true);
+        webView.clearHistory();
+        webView.clearFormData();
+        
+        webView.loadUrl(WEB_URL);
+    }
+
+    private void requestPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            String[] permissions = {
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.MODIFY_AUDIO_SETTINGS
+            };
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                String[] newPermissions = new String[permissions.length + 1];
+                System.arraycopy(permissions, 0, newPermissions, 0, permissions.length);
+                newPermissions[permissions.length] = Manifest.permission.POST_NOTIFICATIONS;
+                permissions = newPermissions;
+            }
+            
+            boolean needRequest = false;
+            for (String p : permissions) {
+                if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
+                    needRequest = true;
+                    break;
+                }
+            }
+            
+            if (needRequest) {
+                ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST_CODE);
+            }
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+    }
+
+    private String fcmToken = null;
+    
+    private void getFCMToken() {
+        FirebaseMessaging.getInstance().getToken()
+            .addOnCompleteListener(task -> {
+                if (!task.isSuccessful()) return;
+                fcmToken = task.getResult();
+                System.out.println("FCM Token ready: " + fcmToken);
+                injectTokenToWebView();
+            });
+    }
+    
+    private void injectTokenToWebView() {
+        if (webView != null && fcmToken != null) {
+            String script = "window.__NATIVE_FCM_TOKEN__ = '" + fcmToken + "'; window.__IS_NATIVE_APP__ = true; console.log('Native token injected');";
+            webView.evaluateJavascript(script, null);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == FILE_CHOOSER_RESULT_CODE) {
+            if (mFilePathCallback == null) return;
+            Uri[] results = null;
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                String dataString = data.getDataString();
+                if (dataString != null) results = new Uri[]{Uri.parse(dataString)};
+            }
+            mFilePathCallback.onReceiveValue(results);
+            mFilePathCallback = null;
+        } else {
+            super.onActivityResult(requestCode, resultCode, data);
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (webView != null && webView.canGoBack()) {
+            webView.goBack();
+        } else {
+            super.onBackPressed();
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // نرجع الـ full screen دايمًا
+        WindowInsetsControllerCompat controller = new WindowInsetsControllerCompat(
+            getWindow(), 
+            getWindow().getDecorView()
+        );
+        controller.hide(WindowInsetsCompat.Type.systemBars());
+        controller.hide(WindowInsetsCompat.Type.displayCutout());
+        controller.setSystemBarsBehavior(
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        );
+    }
+    
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            // نرجع الـ full screen لو رجع من أي حاجة
+            WindowInsetsControllerCompat controller = new WindowInsetsControllerCompat(
+                getWindow(), 
+                getWindow().getDecorView()
+            );
+            controller.hide(WindowInsetsCompat.Type.systemBars());
+            controller.hide(WindowInsetsCompat.Type.displayCutout());
+        }
+    }
+}
