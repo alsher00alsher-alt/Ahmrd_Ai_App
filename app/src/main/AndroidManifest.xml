@@ -78,5 +78,6 @@
         </intent-filter>
     </receiver>
     <receiver android:name=".QuickReplyReceiver" android:exported="false" />
+    <receiver android:name=".MuteReceiver" android:exported="false" />
 </application>
 </manifest>
