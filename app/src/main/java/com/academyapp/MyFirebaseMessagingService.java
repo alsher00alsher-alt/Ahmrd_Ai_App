@@ -120,4 +120,13 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         builder.addAction(replyAction);
     }
     
+
+    @Override
+    public void onNewToken(String token) {
+        super.onNewToken(token);
+        System.out.println("Refreshed FCM Token: " + token);
+        // حفظ التوكن في SharedPreferences عشان الـ WebView يقراه
+        getSharedPreferences("app_fcm", MODE_PRIVATE).edit().putString("token", token).apply();
+    }
+    
 }
