@@ -11,6 +11,9 @@ import android.os.Build;
 import androidx.core.app.NotificationCompat;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
+import androidx.core.app.RemoteInput;
+import android.content.Intent;
+import android.app.PendingIntent;
 
 public class MyFirebaseMessagingService extends FirebaseMessagingService {
     @Override
@@ -70,10 +73,10 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
     }
 
     private void buildMessageNotification(RemoteMessage remoteMessage) {
-        buildStandardNotification(remoteMessage.getData().get("title"), remoteMessage.getData().get("body"));
+        buildStandardNotification(remoteMessage.getData().get("title"), remoteMessage.getData().get("body"), remoteMessage.getData().get("fromUid"), remoteMessage.getData().get("fromName"));
     }
 
-    private void buildStandardNotification(String title, String body) {
+    private void buildStandardNotification(String title, String body, String fromUid, String fromName) {
         String channelId = "messages";
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         
@@ -92,7 +95,29 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true);
+        
+        addReplyAction(builder, fromUid, fromName);
             
         nm.notify((int) System.currentTimeMillis(), builder.build());
     }
+
+    private void addReplyAction(NotificationCompat.Builder builder, String fromUid, String fromName) {
+        if (fromUid == null) return;
+        
+        RemoteInput remoteInput = new RemoteInput.Builder("key_text_reply").setLabel("اكتب ردك...").build();
+        
+        Intent replyIntent = new Intent(this, ReplyReceiver.class);
+        replyIntent.putExtra("toUserId", fromUid);
+        replyIntent.putExtra("fromName", fromName);
+        
+        PendingIntent replyPendingIntent = PendingIntent.getBroadcast(this, 0, replyIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+        
+        NotificationCompat.Action replyAction = new NotificationCompat.Action.Builder(
+            android.R.drawable.ic_menu_send, "رد", replyPendingIntent)
+            .addRemoteInput(remoteInput)
+            .build();
+            
+        builder.addAction(replyAction);
+    }
+    
 }
