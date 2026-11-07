@@ -137,7 +137,8 @@ public class MainActivity extends AppCompatActivity {
                 list.add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE);
             }
             list.add(android.Manifest.permission.CAMERA);
-            list.add(android.Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS);
+            list.add(android.Manifest.permission.RECORD_AUDIO);
+                list.add(Manifest.permission.POST_NOTIFICATIONS);
             
             String[] perms = list.toArray(new String[0]);
             ActivityCompat.requestPermissions(this, perms, PERMISSION_REQUEST_CODE);
