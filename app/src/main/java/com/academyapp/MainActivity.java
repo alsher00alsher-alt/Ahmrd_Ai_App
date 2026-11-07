@@ -45,7 +45,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int FILE_CHOOSER_RESULT_CODE = 100;
     private static final int PERMISSION_REQUEST_CODE = 101;
     // الرابط الجديد
-    private static final String WEB_URL = "https://ahmed-viggle.vercel.app/";
+    private static final String WEB_URL = "https://mobile-store-theta-seven.vercel.app/student?v=" + System.currentTimeMillis();
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -356,4 +356,4 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-}
+}// Build trigger Sat Nov  7 17:15:26 EET 2026
