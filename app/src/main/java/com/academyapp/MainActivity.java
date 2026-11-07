@@ -66,6 +66,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         setContentView(R.layout.activity_main);
+        getFCMToken();
         
         webView = findViewById(R.id.webview);
         if (webView == null) {
@@ -122,6 +123,12 @@ public class MainActivity extends AppCompatActivity {
         });
 
         webView.loadUrl(WEB_URL);
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                injectTokenToWebView();
+            }
+        });
     }
 
     
