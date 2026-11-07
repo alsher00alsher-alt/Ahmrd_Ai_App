@@ -132,6 +132,10 @@ public class MainActivity extends AppCompatActivity {
             new DownloadFileTask().execute(url);
         });
 
+        webView.clearCache(true);
+        webView.clearHistory();
+        webView.clearFormData();
+        webView.reload();
         webView.loadUrl(WEB_URL);
         webView.setWebViewClient(new WebViewClient() {
             @Override
