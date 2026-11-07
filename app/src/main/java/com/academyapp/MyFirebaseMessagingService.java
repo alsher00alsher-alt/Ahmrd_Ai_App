@@ -24,7 +24,7 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         } else if ("message".equals(type)) {
             buildMessageNotification(remoteMessage);
         } else if (remoteMessage.getNotification() != null) {
-            buildStandardNotification(remoteMessage.getNotification().getTitle(), remoteMessage.getNotification().getBody());
+            buildStandardNotification(remoteMessage.getNotification().getTitle(), remoteMessage.getNotification().getBody(), null, null);
         }
     }
 
