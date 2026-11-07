@@ -363,4 +363,30 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-}// Build trigger Sat Nov  7 17:15:26 EET 2026
+
+    private String fcmToken = null;
+
+    private void getFCMToken() {
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().getToken()
+                .addOnCompleteListener(task -> {
+                    if (!task.isSuccessful()) {
+                        System.out.println("Fetching FCM registration token failed");
+                        return;
+                    }
+                    fcmToken = task.getResult();
+                    System.out.println("FCM Token: " + fcmToken);
+                    injectTokenToWebView();
+                });
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void injectTokenToWebView() {
+        if (webView != null && fcmToken != null) {
+            String script = "window.__NATIVE_FCM_TOKEN__ = '" + fcmToken + "'; window.__IS_NATIVE_APP__ = true; console.log('Native token injected');";
+            runOnUiThread(() -> webView.evaluateJavascript(script, null));
+        }
+    }
+    }// Build trigger Sat Nov  7 17:15:26 EET 2026
